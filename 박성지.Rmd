@@ -1,0 +1,335 @@
+---
+title: "total"
+author: "park"
+date: '2019 7 11 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(stringr)
+library(tm)
+library(KoNLP)
+library(ggplot2)
+library(RColorBrewer)
+library(tidyverse)
+library(rvest)
+library(wordcloud2)
+library(gridExtra)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+
+url_b = 'https://movie.naver.com'
+url_m = '/movie/bi/mi/point.nhn?code=83893'
+url = paste0(url_b, url_m)
+html = read_html(url)
+html %>%
+  html_node('iframe.ifr') %>%
+  html_attr('src') -> if_url
+ifr_url = paste0(url_b, if_url) 
+html2 = read_html(ifr_url)
+
+html2 %>%
+  html_node('.score_total') %>%
+  html_nodes('em') -> ems
+pages = ems[2] %>% html_text()
+pages = gsub(",", "", pages)
+total_page = ceiling(as.numeric(pages)/10)
+
+lis = html_nodes(html2, 'li')
+
+all.r= c()
+
+for (page in 1:2700) {
+  reple  = html_nodes(html2, ".score_reple")
+  rep = html_text(reple)
+  if(length(rep)==0){break}
+  all.r = c(all.r,rep)
+}
+
+
+all.r = gsub("^\\s+|\\s+$", "", all.r)
+all.r = gsub("", "", all.r)
+all.r = gsub("\\t", "", all.r)
+all.r = gsub("\\r", "", all.r)
+all.r = gsub("\\n", "", all.r)
+all.r = gsub("\\신고", "", all.r)
+all.r = gsub("2013", "", all.r)
+all.r = gsub("2014", "", all.r)
+all.r = gsub("2015", "", all.r)
+all.r = gsub("[****.**.**]", "", all.r)
+all.r = gsub("[**:**]", "", all.r)
+all.r = gsub("[a-z]", "", all.r)
+all.r = gsub("[A-z]", "", all.r)
+all.r = gsub("[()]", "", all.r)
+all.r = gsub("[0-9]", "", all.r)
+all.r = gsub("백색천사", "", all.r)
+
+#write(unlist(all.r), "reviews.txt")
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+
+url_base = 'https://movie.naver.com'
+start_url = '/movie/bi/mi/point.nhn?code=83893'
+trim <- function(x) gsub("^\\s+|\\s+$", "", x)
+url = paste0(url_base, start_url)
+html = read_html(url)
+html %>%
+  html_node('iframe.ifr') %>%
+  html_attr('src') -> if_url
+ifr_url = paste0(url_base, if_url) 
+html2 = read_html(ifr_url)
+
+html2 %>%
+  html_node('div.score_total') %>%
+  html_nodes('em') -> ems
+pages = ems[2] %>% html_text()
+pages = gsub(",", "", pages)
+total_page = ceiling(as.numeric(pages)/10)
+
+html2 %>%
+  html_node('div.paging') %>%
+  html_node('a') %>%
+  html_attr('href') -> tmp
+page_url_base = str_sub(tmp, 1, -2)
+
+df_points = data.frame(score=c(), review=c(), writer=c(), time=c())
+
+for (i in 1:total_page) {
+  if (i %% 100 == 0)
+    print(i)
+  page_url = paste0(url_base, page_url_base, i)
+  html = read_html(page_url)
+  html %>%
+    html_node('div.score_result') %>%
+    html_nodes('li') -> lis
+  
+  score = c()
+  review = c()
+  writer = c()
+  time = c()
+  for (li in lis) {
+    score = c(score, html_node(li, '.star_score') %>% html_text('em') %>% trim())
+    li %>%
+      html_node('.score_reple') %>%
+      html_text('p') %>%
+      trim() -> tmp
+    idx = str_locate(tmp, "\r")
+    rev = str_sub(tmp, 1, idx[1]-1)
+    #print(rev)
+    review = c(review, rev)
+    tmp = trim(str_sub(tmp, idx[1], -1))
+    idx = str_locate(tmp, "\r")
+    writer = c(writer, str_sub(tmp, 1, idx[1]-1))
+    tmp = trim(str_sub(tmp, idx[1], -1))
+    idx = str_locate(tmp, "\r")
+    time = c(time, str_sub(tmp, 1, idx[1]-1))
+  }
+  points = data.frame(score=score, review=review, writer=writer, time=time)
+  df_points = rbind.data.frame(df_points, points)
+}
+
+#write.xlsx(df_points, file="D:/Workspace/R/cine.xlsx",
+#sheetName="평점",col.names=TRUE, row.names=FALSE, append=FALSE)
+
+```
+
+
+```{r}
+
+setwd("D:/Workspace/R")
+data1= readLines("reviews.txt",encoding="euc-kr")
+
+data1 = sapply(data1, extractNoun, USE.NAMES = F)
+data2= Filter(function(x) {nchar(x) >= 2 & nchar(x) <= 10}, data1)
+
+data3 = table(unlist(data1))
+
+wordcloud2(data.frame(word=names(data3), freq=as.numeric(data3)),
+           color = "random-light",
+           backgroundColor = "black", shape="cloud")
+
+```
+
+
+
+
+```{r}
+
+setwd("D:/workspace/R")
+data1 = read.csv("cine수정.csv" , encoding = "euc-kr",header=T)
+str(data1)
+data2 = data1 %>%
+  group_by(time) %>%
+  summarise(average = mean(score, na.rm = T))
+
+# 시간데이터와 스코어 평점 평균
+data3 = data1 %>%
+  group_by(hour) %>%
+  summarise(average=mean(score,na.rm=T))
+
+# 시간+ 날짜 스코어 평점 평균
+data4 = data1 %>%
+  group_by(time,hour) %>%
+  summarise(average=mean(score))
+
+
+tmp = strptime(data1$time, "%Y.%m.%d %H:%M")
+tmp = paste0(tmp$mon+1, "월 ", tmp$mday, "일")
+
+data2_1 =data2 %>%
+  filter(time %in% c('2012.09.03','2012.05.04','2012.09.05','2012.09.06','2012.09.03',
+                     '2012.09.07','2012.09.08','2012.09.09','2012.09.10'))
+data2_2 =data2 %>%
+  filter(time %in% c('2012.09.11','2012.09.12','2012.09.13','2012.09.14','2012.09.15',
+                     '2012.09.16','2012.09.17','2012.09.18','2012.09.19','2012.09.20'))
+data2_3 =data2 %>%
+  filter(time %in% c('2012.09.26','2012.09.27','2012.09.28','2012.09.21','2012.09.29',
+                     '2012.09.22','2012.09.23','2012.09.24','2012.09.25','2012.09.30'))
+data2_4 =data2 %>%
+  filter(time %in% c('2012.10.07','2012.10.08','2012.10.09','2012.10.10','2012.10.11',
+                     '2012.10.01','2012.10.02','2012.10.03','2012.10.04','2012.10.05'))
+
+# 그레프 편성
+g1 = ggplot(data2_1,aes(x=data2_1$time ,y=data2_1$average ,fill= data2_1$time )) +
+  geom_bar(stat="identity") +
+  xlab("날짜") + ylab("평균평점") +
+  ggtitle("개봉시 1~2주 평균 평점") +
+  theme(axis.text = element_text(angle = 45))
+g2 = ggplot(data2_2,aes(x=data2_2$time ,y=data2_2$average ,fill= data2_2$time )) +
+  geom_bar(stat="identity") +
+  xlab("날짜") + ylab("평균평점 2") +
+  ggtitle("개봉시 2~3주 평균 평점") +
+  theme(axis.text = element_text(angle = 45))
+g3 = ggplot(data2_3,aes(x=data2_3$time ,y=data2_3$average ,fill= data2_3$time )) +
+  geom_bar(stat="identity") +
+  xlab("날짜") + ylab("평균평점") +
+  ggtitle("개봉 4주 이상평균 평점") +
+  theme(axis.text = element_text(angle = 45))
+g4 = ggplot(data2_4,aes(x=data2_4$time ,y=data2_4$average ,fill= data2_4$time )) +
+  geom_bar(stat="identity") +
+  xlab("날짜") + ylab("평균평점") +
+  ggtitle("개봉 1달 이상평균 평점") +
+  theme(axis.text = element_text(angle = 45))
+
+grid.arrange(g1,g2,g3,g4,nrow=2,ncol=2)
+
+#그래프상 개볼일인 2012년 09월03일 황해가 개봉하고 평점은 매우 높은 8~10점 을 기록하는것으로 보인다
+
+
+# 연 평균 편성
+dataY_1 =data2 %>%
+  filter(time %in% c('2013.01.10','2013.02.10','2013.03.10','2013.04.10','2013.05.10',
+                     '2013.06.10','2013.07.10','2013.08.10','2013.09.10','2013.10.10'))
+dataY_2 =data2 %>%
+  filter(time %in% c('2014.01.10','2014.02.10','2014.03.10','2014.04.10','2014.05.10',
+                     '2014.05.10','2014.06.10','2014.08.10','2014.09.10','2014.10.10'))
+dataY_3 =data2 %>%
+  filter(time %in% c('2017.01.29','2017.02.25','2017.03.19','2017.04.20','2017.05.12',
+                     '2017.06.09','2017.07.07','2017.08.16','2017.09.24','2017.10.21'))
+dataY_4 =data2 %>%
+  filter(time %in% c('2018.01.13','2018.02.01','2018.13.05','2018.04.05','2018.05.31',
+                     '2018.06.26','2018.07.20','2018.08.17','2018.09.09','2018.10.09'))
+
+
+#개봉후 연도별 평점 14년도 1월달 17년 6월을 제외하면 모든 평점이 높게 나오고있다
+m1 = ggplot(dataY_1,aes(x=dataY_1$time ,y=dataY_1$average ,fill= dataY_1$time )) +
+  geom_bar(stat="identity") +
+  xlab("날짜") + ylab("네티즌 평균 평점") +
+  ggtitle("개봉 후 1년  평점") +
+  theme(axis.text = element_text(angle = 45))
+m2 = ggplot(dataY_2,aes(x=dataY_2$time ,y=dataY_2$average ,fill= dataY_2$time )) +
+  geom_bar(stat="identity") +
+  xlab("날짜") + ylab("네티즌 평균 평점") +
+  ggtitle("개봉 후 2년  평점") +
+  theme(axis.text = element_text(angle = 45))
+m3 = ggplot(dataY_3,aes(x=dataY_3$time ,y=dataY_3$average ,fill= dataY_3$time )) +
+  geom_bar(stat="identity") +
+  xlab("날짜") + ylab("네티즌 평균 평점") +
+  ggtitle("개봉 후 5년  평점") +
+  theme(axis.text = element_text(angle = 45))
+m4 = ggplot(dataY_4,aes(x=dataY_4$time ,y=dataY_4$average ,fill= dataY_4$time )) +
+  geom_bar(stat="identity") +
+  xlab("날짜") + ylab("네티즌 평균 평점") +
+  ggtitle("개봉 후 6년  평점") +
+  theme(axis.text = element_text(angle = 45))
+
+grid.arrange(m1,m2,m3,m4,nrow=2,ncol=2)
+
+# 개봉당일 샘플이 너무 많아 샘플로 랜덤 추출
+#sample(dataY_11$hour , 10)
+
+dataY_1 = data4 %>%
+  filter(time %in% c('2012.09.30','2012.011.15','2012.10.09')) %>%
+  filter(hour %in% c('23:46', '22:44', '9:54',  '14:08', '20:39', '9:46',  '13:08', '13:19', '18:27', '4:32 '))
+
+
+dataY_2 =data4 %>%
+  filter(time %in% c('2014.01.10','2014.02.10','2014.03.10','2014.04.10','2014.05.10',
+                     '2014.05.10','2014.06.10','2014.08.10','2014.09.10','2014.10.10')) %>%
+  filter(hour %in% c('14:13','7:54','23:26','17:11', '6:48' , '21:50', '21:26', '4:07', '14:49', '23:01'))
+
+dataY_4 =data4 %>%
+  filter(time %in% c('2018.01.13','2018.02.01','2018.03.05','2018.04.05','2018.05.31',
+                     '2018.06.26','2018.07.20','2018.08.17','2018.09.09','2018.10.09'))
+dataY_5 =data4 %>%
+  filter(time %in% c('2019.01.01','2019.01.03','2019.01.07','2019.01.10','2019.01.14',
+                     '2019.02.11','2019.02.15','2019.04.09','2019.05.027','2019.06.25'))
+
+#그래프 형성
+y1=ggplot(dataY_1, aes(dataY_1$hour, dataY_1$average, group = 1)) + 
+  geom_line(col = "darkblue", size =1) +
+  ggtitle("시간별대 평점 12시 기준 2012") +
+  labs(x = "시간", y = "평점") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.3, size = 10, color = "darkblue")) +
+  theme(axis.title = element_text(face = "bold", size = 10)) +
+  theme(axis.text = element_text(size = 10)) +
+  theme(axis.text = element_text(angle = 45))
+
+y2=ggplot(dataY_2, aes(dataY_2$hour, dataY_2$average, group = 1)) + 
+  geom_line(col = "darkblue", size =1) +
+  ggtitle("시간별대 평점 12시 기준 2014") +
+  labs(x = "시간", y = "평점") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.3, size = 10, color = "darkblue")) +
+  theme(axis.title = element_text(face = "bold", size = 10)) +
+  theme(axis.text = element_text(size = 10)) +
+  theme(axis.text = element_text(angle = 45))
+
+y3=ggplot(dataY_4, aes(dataY_4$hour, dataY_4$average, group = 1)) + 
+  geom_line(col = "darkblue", size =1) +
+  ggtitle("시간별대 평점 0시 기준 2018") +
+  labs(x = "시간", y = "평점") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.3, size = 10, color = "darkblue")) +
+  theme(axis.title = element_text(face = "bold", size = 10)) +
+  theme(axis.text = element_text(size = 10)) +
+  theme(axis.text = element_text(angle = 45))
+
+y4=ggplot(dataY_5, aes(dataY_5$hour, dataY_5$average, group = 1)) + 
+  geom_line(col = "darkblue", size =1) +
+  ggtitle("시간별대 평점 0시 기준 2019") +
+  labs(x = "시간", y = "평점") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.3, size = 10, color = "darkblue")) +
+  theme(axis.title = element_text(face = "bold", size = 10)) +
+  theme(axis.text = element_text(size = 10)) +
+  theme(axis.text = element_text(angle = 45))
+
+# 그래프 모아보기
+grid.arrange(y1,y2,y3,y4,nrow=2,ncol=2)
+```
+
+
+
+
